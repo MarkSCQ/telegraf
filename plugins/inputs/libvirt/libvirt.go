@@ -155,7 +155,7 @@ func (l *Libvirt) Gather(acc telegraf.Accumulator) error {
 	if err = l.utils.EnsureConnected(l.LibvirtURI); err != nil {
 		return err
 	}
-
+	fmt.Println("hello world")
 	// Get all available domains
 	gatheredDomains, err := l.utils.GatherAllDomains()
 	if handledErr := handleError(err, "error occurred while gathering all domains", l.utils); handledErr != nil {
