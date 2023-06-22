@@ -103,7 +103,7 @@ func (l *Libvirt) validateLibvirtURI() error {
 }
 
 func (l *Libvirt) calculateMetricNumber() error {
-	var libvirtMetricNumber = map[string]uint32{
+	libvirtMetricNumber := map[string]uint32{
 		"state":     domainStatsState,
 		"cpu_total": domainStatsCPUTotal,
 		"balloon":   domainStatsBalloon,
@@ -113,7 +113,8 @@ func (l *Libvirt) calculateMetricNumber() error {
 		"perf":      domainStatsPerf,
 		"iothread":  domainStatsIothread,
 		"memory":    domainStatsMemory,
-		"dirtyrate": domainStatsDirtyrate}
+		"dirtyrate": domainStatsDirtyrate,
+	}
 
 	metricIsSet := make(map[string]bool)
 	for _, metricName := range l.StatisticsGroups {
@@ -156,6 +157,7 @@ func (l *Libvirt) Gather(acc telegraf.Accumulator) error {
 		return err
 	}
 	fmt.Println("hello world")
+
 	// Get all available domains
 	gatheredDomains, err := l.utils.GatherAllDomains()
 	if handledErr := handleError(err, "error occurred while gathering all domains", l.utils); handledErr != nil {
@@ -181,6 +183,8 @@ func (l *Libvirt) Gather(acc telegraf.Accumulator) error {
 	}
 
 	err = l.gatherMetrics(domains, vcpuInfos, acc)
+	l.utils.QemuCommandMetrics(domains)
+	// QemuCommandMetrics(domains)
 	return handleError(err, "error occurred while gathering metrics", l.utils)
 }
 
@@ -216,6 +220,7 @@ func (l *Libvirt) gatherMetrics(domains []golibvirt.Domain, vcpuInfos map[string
 	}
 
 	l.addMetrics(stats, vcpuInfos, acc)
+	// l.addQemuCommand(domains, acc)
 	return nil
 }
 
@@ -225,7 +230,7 @@ func (l *Libvirt) getVcpuMapping(domains []golibvirt.Domain) (map[string][]vcpuA
 		return nil, err
 	}
 
-	var vcpuInfos = make(map[string][]vcpuAffinity)
+	vcpuInfos := make(map[string][]vcpuAffinity)
 	group := errgroup.Group{}
 	mutex := &sync.RWMutex{}
 	for i := range domains {

@@ -15,6 +15,8 @@ type utils interface {
 	GatherVcpuMapping(domain golibvirt.Domain, pCPUs int, shouldGetCurrentPCPU bool) ([]vcpuAffinity, error)
 	EnsureConnected(libvirtURI string) error
 	Disconnect() error
+
+	QemuCommandMetrics(domains []golibvirt.Domain) error
 }
 
 type utilsImpl struct {
