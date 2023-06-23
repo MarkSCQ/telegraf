@@ -1,8 +1,10 @@
 package libvirt
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 
 	golibvirt "github.com/digitalocean/go-libvirt"
 	uuid "github.com/satori/go.uuid"
@@ -49,7 +51,24 @@ type DomainGather struct {
 	DomainUUID string
 }
 
-func DomainGatherAll(domain golibvirt.Domain) error {
+type OsInfo struct {
+	Name          string `json:"name"`
+	KernelRelease string `json:"kernel-release"`
+	Version       string `json:"version"`
+	PrettyName    string `json:"pretty-name"`
+	VersionId     string `json:"version-id"`
+	KernelVersion string `json:"kernel-version"`
+	Machine       string `json:"machine"`
+	VmID          string `json:"id"`
+}
+
+type OsInfoRet struct {
+	Return OsInfo `json:"return"`
+}
+
+func DomainGatherAllLinux(domain golibvirt.Domain, wg *sync.WaitGroup) error {
+	defer wg.Done()
+
 	domain_name := domain.Name
 	domain_uuid, err := uuid.FromBytes(domain.UUID[:])
 	if err != nil {
@@ -57,73 +76,72 @@ func DomainGatherAll(domain golibvirt.Domain) error {
 		return err
 	}
 	dg := DomainGather{DomainName: domain_name, DomainUUID: domain_uuid.String()}
+	fmt.Println("=============================")
 	fmt.Println(dg.DomainName)
 	fmt.Println(dg.DomainUUID)
 	return nil
 }
 
-func (l *utilsImpl) CheckOSType(domain golibvirt.Domain) error {
-	osInfoExec := fmt.Sprintf(`{"execute": "guest-get-osinfo"}`)
-	// osInfoExec := fmt.Sprintf(`ls `)
-	// t := golibvirt.Libvirt{}
-	// t.QEMUDomainAgentCommand()
-	// QEMUDomainAgentCommandArgs{}
-
-	res, err := l.libvirt.QEMUDomainAgentCommand(domain, osInfoExec, 5, 0)
-	if err != nil {
-		fmt.Println("err")
-		fmt.Println(err)
-		return err
-	}
-	fmt.Println("res")
-	fmt.Println(res)
-
-	domain_uuid, err := uuid.FromBytes(domain.UUID[:])
-	fmt.Println(domain_uuid)
-
-	// QEMUDomainAgentCommand(Dom Domain, Cmd string, Timeout int32, Flags uint32) (rResult OptString, err error) {
-
-	// osInfoExec := fmt.Sprintf(`{"fexecute": "guest-get-osinfo"}`)
-	// domainName, err := domain.GetName()
-
-	// output, err := domain.QemuAgentCommand(osInfoExec, libvirt.DOMAIN_QEMU_AGENT_COMMAND_DEFAULT, 0)
-	// if err != nil {
-	// 	log.Println("========================> ReadGuestFile guest-get-osinfo")
-	// 	log.Println(domainName + " ===> " + err.Error())
-	// 	return "", err
-	// }
-	// var dat osInfoStruct
-	// err = json.Unmarshal([]byte(output), &dat)
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	// return dat.Return.ID, nil
+func DomainGatherAllMsWin(domain golibvirt.Domain, wg *sync.WaitGroup) error {
+	defer wg.Done()
 	return nil
+}
+
+func (l *utilsImpl) CheckOSType(domain golibvirt.Domain) (int, error) {
+	osInfoCmd := fmt.Sprintf(`{"execute": "guest-get-osinfo"}`)
+
+	res, err := l.libvirt.QEMUDomainAgentCommand(domain, osInfoCmd, 5, 0)
+	if err != nil {
+		// fmt.Println("err")
+
+		log.Println(err.Error())
+		return 0, err
+	}
+
+	var dat OsInfoRet
+
+	err = json.Unmarshal([]byte(res[0]), &dat)
+
+	if err != nil {
+		log.Println(err.Error())
+		return 0, err
+	}
+	vm_id := dat.Return.VmID
+	if vm_id == "mswindows" {
+		return 2, nil
+	} else {
+		return 1, nil
+	}
 }
 
 func (l *utilsImpl) QemuCommandMetrics(domains []golibvirt.Domain) error {
 	fmt.Println("hello")
-	// var wg sync.WaitGroup
+	var wg sync.WaitGroup
 
 	for _, domain := range domains {
-		// wg.Add(1)
-		l.CheckOSType(domain)
-		// fmt.Println(dom)
-		fmt.Println(domain.Name)
-		fmt.Println(domain.UUID)
-		fmt.Println(domain.ID)
+		wg.Add(1)
+		vm_id, err := l.CheckOSType(domain)
+		if err != nil {
+			log.Println(err.Error())
+			return err
+		}
+		if vm_id == 1 {
+			// Linxu Gather All
+			fmt.Println("Get Linux")
+			go DomainGatherAllLinux(domain, &wg)
+		} else if vm_id == 2 {
+			// Windows Gather All
 
-		// uuidValue, _ := uuid.FromBytes(dom.UUID[:])
-
-		// // Convert UUID to string
-		// uuidString := uuidValue.String()
-
-		// fmt.Println(uuidString)
+			fmt.Println("Get windows")
+			go DomainGatherAllMsWin(domain, &wg)
+		} else {
+			fmt.Println("Cannot Tell")
+			// Pass
+		}
 	}
-	// QEMUDomainAgentCommand
+
 	fmt.Println("world")
-	// wg.Wait()
+	wg.Wait()
 	return nil
 }
 
