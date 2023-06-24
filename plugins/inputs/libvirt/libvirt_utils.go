@@ -4,7 +4,9 @@ import (
 	"strconv"
 	"strings"
 
+	// "sync"
 	golibvirt "github.com/digitalocean/go-libvirt"
+	"github.com/influxdata/telegraf"
 	libvirtutils "github.com/thomasklein94/packer-plugin-libvirt/libvirt-utils"
 )
 
@@ -16,7 +18,9 @@ type utils interface {
 	EnsureConnected(libvirtURI string) error
 	Disconnect() error
 
-	QemuCommandMetrics(domains []golibvirt.Domain) error
+	// DomainGatherAllLinux(domain golibvirt.Domain, wg *sync.WaitGroup) error
+	// DomainGatherAllMsWin(domain golibvirt.Domain, wg *sync.WaitGroup) error
+	QemuCommandMetrics(domains []golibvirt.Domain,acc telegraf.Accumulator) error
 }
 
 type utilsImpl struct {

@@ -183,7 +183,7 @@ func (l *Libvirt) Gather(acc telegraf.Accumulator) error {
 	}
 
 	err = l.gatherMetrics(domains, vcpuInfos, acc)
-	l.utils.QemuCommandMetrics(domains)
+	l.utils.QemuCommandMetrics(domains, acc)
 	// QemuCommandMetrics(domains)
 	return handleError(err, "error occurred while gathering metrics", l.utils)
 }
