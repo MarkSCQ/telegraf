@@ -149,37 +149,6 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 	fmt.Println("Main Routine")
 	fmt.Println(data)
 
-	
-
-	// cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
-
-	// res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
-	// if err != nil {
-	// 	fmt.Println(err.Error())
-
-	// 	return "", err
-	// }
-	// execStatusRes := &execStatusReturn{}
-	// err = json.Unmarshal([]byte(res[0]), execStatusRes)
-	// fmt.Println("execStatusRes")
-	// fmt.Println(execStatusRes)
-
-	// if execStatusRes.Return.Exited {
-	// 	stdOutBytes, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
-	// 	if err != nil {
-	// 		return "", err
-	// 	}
-	// 	stdOut := string(stdOutBytes)
-	// 	exitCode := execStatusRes.Return.ExitCode
-	// 	exited := true
-	// 	fmt.Println("stdOut")
-	// 	fmt.Println(stdOut)
-	// 	fmt.Println("exitCode")
-	// 	fmt.Println(exitCode)
-	// 	fmt.Println("exited")
-	// 	fmt.Println(exited)
-
-	// }
 
 	if err != nil {
 		return "", err
@@ -409,3 +378,35 @@ func (l *utilsImpl) QemuCommandMetrics(domains []golibvirt.Domain, acc telegraf.
 // 	acc.AddFields("qga", fields, tags)
 // 	return nil
 // }
+
+	
+
+	// cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
+
+	// res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
+	// if err != nil {
+	// 	fmt.Println(err.Error())
+
+	// 	return "", err
+	// }
+	// execStatusRes := &execStatusReturn{}
+	// err = json.Unmarshal([]byte(res[0]), execStatusRes)
+	// fmt.Println("execStatusRes")
+	// fmt.Println(execStatusRes)
+
+	// if execStatusRes.Return.Exited {
+	// 	stdOutBytes, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
+	// 	if err != nil {
+	// 		return "", err
+	// 	}
+	// 	stdOut := string(stdOutBytes)
+	// 	exitCode := execStatusRes.Return.ExitCode
+	// 	exited := true
+	// 	fmt.Println("stdOut")
+	// 	fmt.Println(stdOut)
+	// 	fmt.Println("exitCode")
+	// 	fmt.Println(exitCode)
+	// 	fmt.Println("exited")
+	// 	fmt.Println(exited)
+
+	// }
