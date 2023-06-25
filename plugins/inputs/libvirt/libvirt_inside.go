@@ -55,7 +55,6 @@ type ReadReturn struct {
 }
 
 func GuestFileOpen(domain golibvirt.Domain, lv *golibvirt.Libvirt, filePath string) (*FileOpenHandler, error) {
-	// contents := ""
 	cmdOpenFile := fmt.Sprintf(`{"execute": "guest-file-open", "arguments": { "path": "%s", "mode":"r" } }`, filePath)
 
 	res, err := lv.QEMUDomainAgentCommand(domain, cmdOpenFile, 5, 0)
@@ -70,11 +69,135 @@ func GuestFileOpen(domain golibvirt.Domain, lv *golibvirt.Libvirt, filePath stri
 	return fileOpenHandler, err
 }
 
+type execReturn struct {
+	Return execReturnData `json:"return"`
+}
+
+type execReturnData struct {
+	Pid int `json:"pid"`
+}
+type execStatusReturn struct {
+	Return execStatusReturnData `json:"return"`
+}
+
+type execStatusReturnData struct {
+	Exited   bool   `json:"exited"`
+	ExitCode int    `json:"exitcode"`
+	OutData  string `json:"out-data"`
+	// signalsignal number (linux) or unhandled exception code (windows) if the process was abnormally terminated.
+	// err-database64-encoded stderr of the process Note: out-data and err-data are present only if ‘capture-output’ was specified for ‘guest-exec’
+	// out-truncated: boolean (optional) true if stdout was not fully captured due to size limitation.
+	// err-truncated: boolean (optional)true if stderr was not fully captured due to size limitation.
+}
+
+func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command string, Arguements string) (string, error) {
+	argsStr := fmt.Sprintf("\"%s\"", Arguements)
+
+	cmdExec := fmt.Sprintf(`{"execute": "guest-exec", "arguments": { "path": "%s", "arg": [ %s ], "capture-output":true } }`, Command, argsStr)
+	fmt.Println(cmdExec)
+	res, err := lv.QEMUDomainAgentCommand(domain, cmdExec, 5, 0)
+	if err != nil {
+		fmt.Println(err.Error())
+		return "", err
+	}
+	execRes := &execReturn{}
+	err = json.Unmarshal([]byte(res[0]), execRes)
+	if err != nil {
+		return "", err
+	}
+	// time.Sleep(1 * time.Second)
+	// fmt.Println("execRes")
+	// fmt.Println(execRes)
+	// fmt.Println("execRes")
+
+	// stdOut base64-encoded stdout of the process
+	// exitCode process exit code if it was normally terminated.
+	// exited true if process has already terminated.
+
+	dataChan := make(chan execStatusReturn)
+
+	go func() {
+		cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
+		for {
+			res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
+			if err != nil {
+				fmt.Println(err.Error())
+				break
+			}
+			execStatusRes := &execStatusReturn{}
+			err = json.Unmarshal([]byte(res[0]), execStatusRes)
+
+			if execStatusRes.Return.Exited {
+				// stdOutBytes, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
+				_, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
+				if err != nil {
+					fmt.Println(err.Error())
+					break
+				}
+			}
+			fmt.Println("==================================")
+			fmt.Println("execStatusRes")
+			fmt.Println(execStatusRes)
+
+			if execStatusRes.Return.Exited {
+				dataChan <- *execStatusRes
+				return
+			}
+		}
+	}()
+	data := <-dataChan
+	fmt.Println("Main Routine")
+	fmt.Println(data)
+
+	
+
+	// cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
+
+	// res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
+	// if err != nil {
+	// 	fmt.Println(err.Error())
+
+	// 	return "", err
+	// }
+	// execStatusRes := &execStatusReturn{}
+	// err = json.Unmarshal([]byte(res[0]), execStatusRes)
+	// fmt.Println("execStatusRes")
+	// fmt.Println(execStatusRes)
+
+	// if execStatusRes.Return.Exited {
+	// 	stdOutBytes, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
+	// 	if err != nil {
+	// 		return "", err
+	// 	}
+	// 	stdOut := string(stdOutBytes)
+	// 	exitCode := execStatusRes.Return.ExitCode
+	// 	exited := true
+	// 	fmt.Println("stdOut")
+	// 	fmt.Println(stdOut)
+	// 	fmt.Println("exitCode")
+	// 	fmt.Println(exitCode)
+	// 	fmt.Println("exited")
+	// 	fmt.Println(exited)
+
+	// }
+
+	if err != nil {
+		return "", err
+	}
+
+	return "", nil
+}
+
 func GuestFileRead(domain golibvirt.Domain, lv *golibvirt.Libvirt, fileOpenHandler int) (string, error) {
+	// Read from an open file in the guest. Data will be base64-encoded.
+	// As this command is just for limited, ad-hoc debugging, such as log file access,
+	// the number of bytes to read is limited to 48 MB.
+	// arg := []string{"-al"}
+	
+
 	contentString := ""
 	cmdReadFile := fmt.Sprintf(`{"execute": "guest-file-read", "arguments": { "handle": %d } }`, fileOpenHandler)
 	res, err := lv.QEMUDomainAgentCommand(domain, cmdReadFile, 5, 0)
-	
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +214,7 @@ func GuestFileRead(domain golibvirt.Domain, lv *golibvirt.Libvirt, fileOpenHandl
 		}
 		contentString = string(readBytes)
 	}
-	
+
 	if !readRes.Return.EOF {
 		return "File Reading Not Finished", nil
 	}
@@ -109,6 +232,12 @@ func GuestFileClose(domain golibvirt.Domain, lv *golibvirt.Libvirt, fileOpenHand
 }
 
 func GetGuestFileContent(domain golibvirt.Domain, lv *golibvirt.Libvirt, filePath string) (string, error) {
+	// check file size
+	// if <=48M then
+	// 		do .....
+	// else
+	// 		make copy of files and
+	//
 	fileOpenHandler, err := GuestFileOpen(domain, lv, filePath)
 	if err != nil {
 		return "File Openning Fail", err
@@ -130,8 +259,19 @@ func LinuxMem(domain golibvirt.Domain, lv *golibvirt.Libvirt) error {
 		log.Printf("Error! %s ,%s", readFromFile, err.Error())
 		return err
 	}
-	fmt.Println(readFromFile)
+	// fmt.Println(readFromFile)
 	fmt.Printf("%T \n", readFromFile)
+	return nil
+}
+
+func LinuxCpu(domain golibvirt.Domain, lv *golibvirt.Libvirt) error {
+	cpuData, err := GetGuestFileContent(domain, lv, "/proc/stat")
+	if err != nil {
+		log.Printf("Error! %s ,%s", cpuData, err.Error())
+		return err
+	}
+	// fmt.Println(cpuData)
+	fmt.Printf("%T \n", cpuData)
 	return nil
 }
 
@@ -140,7 +280,8 @@ func (dg *DomainGather) QemuCommandMem(acc telegraf.Accumulator, lv *golibvirt.L
 	if dg.DomianOsType == 1 {
 		fmt.Println("QemuCommandMem() -- Linux")
 		LinuxMem(dg.Domain, lv)
-
+		// LinuxCpu(dg.Domain, lv)
+		GuestCommandExec(dg.Domain, lv, "/bin/df", "-Th")
 	} else {
 	}
 
