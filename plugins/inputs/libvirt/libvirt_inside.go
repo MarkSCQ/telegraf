@@ -3,9 +3,11 @@ package libvirt
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	golibvirt "github.com/digitalocean/go-libvirt"
 	"github.com/influxdata/telegraf"
@@ -14,17 +16,18 @@ import (
 
 type DomainGather struct {
 	// QemuCommandMem()
-
 	// QemuCommandCpu()
 	// QemuCommandDisk()
 	// QemuCommandDiskIO(str string)
 	// QemuCommandNetState(str string)
 	// QemuCommandNetSpeed(str string)
 	// QemuCommandNetUsage(str string)
+
 	DomianOsType int
 	Domain       golibvirt.Domain
 }
 
+// guest-get-users (Command)
 type OsInfo struct {
 	Name          string `json:"name"`
 	KernelRelease string `json:"kernel-release"`
@@ -84,15 +87,25 @@ type execStatusReturnData struct {
 	Exited   bool   `json:"exited"`
 	ExitCode int    `json:"exitcode"`
 	OutData  string `json:"out-data"`
+	// Exited true if process has already terminated.
+	// ExitCode process exit code if it was normally terminated.
+	// OutData base64-encoded stdout of the process
 	// signalsignal number (linux) or unhandled exception code (windows) if the process was abnormally terminated.
 	// err-database64-encoded stderr of the process Note: out-data and err-data are present only if ‘capture-output’ was specified for ‘guest-exec’
 	// out-truncated: boolean (optional) true if stdout was not fully captured due to size limitation.
 	// err-truncated: boolean (optional)true if stderr was not fully captured due to size limitation.
 }
 
-func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command string, Arguements string) (string, error) {
-	argsStr := fmt.Sprintf("\"%s\"", Arguements)
-
+func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command string, Arguements []string) (string, error) {
+	// argsStr := fmt.Sprintf("\"%s\"", Arguements)
+	argsStr := ""
+	for _, arg := range Arguements {
+		if argsStr == "" {
+			argsStr = fmt.Sprintf("\"%s\"", arg)
+		} else {
+			argsStr = argsStr + fmt.Sprintf(", \"%s\"", arg)
+		}
+	}
 	cmdExec := fmt.Sprintf(`{"execute": "guest-exec", "arguments": { "path": "%s", "arg": [ %s ], "capture-output":true } }`, Command, argsStr)
 	fmt.Println(cmdExec)
 	res, err := lv.QEMUDomainAgentCommand(domain, cmdExec, 5, 0)
@@ -105,20 +118,26 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 	if err != nil {
 		return "", err
 	}
-	// time.Sleep(1 * time.Second)
-	// fmt.Println("execRes")
-	// fmt.Println(execRes)
-	// fmt.Println("execRes")
 
 	// stdOut base64-encoded stdout of the process
 	// exitCode process exit code if it was normally terminated.
 	// exited true if process has already terminated.
 
 	dataChan := make(chan execStatusReturn)
-
+	// the guest-exec and guest-exec-status,
+	// especially the second step,
+	// which would cost huge time comparing with normal sequential processing
+	// sequentially processing will for each round will cost 10ms 
+	// however inorder to acquire data, it has to run couple of rounds
 	go func() {
+		start := time.Now()
+		defer func() {
+			fmt.Println("time elapse:", time.Since(start))
+		}()
 		cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
+		round := 1
 		for {
+			start1 := time.Now()
 			res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
 			if err != nil {
 				fmt.Println(err.Error())
@@ -135,20 +154,42 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 					break
 				}
 			}
+			fmt.Println("Current Round ", round)
+			fmt.Println("time elapse:", time.Since(start1))
 			fmt.Println("==================================")
 			fmt.Println("execStatusRes")
 			fmt.Println(execStatusRes)
-
+			round += 1
+			// test if shit happens
+			// time.Sleep(6*time.Second)
+			// only return when Exited is True
+			// meanwhile using select to monitor whether timeout or not
 			if execStatusRes.Return.Exited {
+				// Exited true if process has already terminated.
+				// ExitCode process exit code if it was normally terminated.
 				dataChan <- *execStatusRes
 				return
 			}
 		}
 	}()
-	data := <-dataChan
-	fmt.Println("Main Routine")
-	fmt.Println(data)
+	// data := <-dataChan
+	timeOutFlag := false
+	select {
+	case data := <-dataChan:
+		fmt.Println("Main Routine -- Select")
+		fmt.Println(domain.Name)
+		fmt.Println(data)
+	// timeout should be configed in config files
+	case <-time.After(1 * time.Second):
+		fmt.Println("Time Out")
+		timeOutFlag = true
+	}
 
+	if timeOutFlag {
+		// cannot get data
+		fmt.Println("Time out")
+		return "", errors.New("time out")
+	}
 
 	if err != nil {
 		return "", err
@@ -162,7 +203,6 @@ func GuestFileRead(domain golibvirt.Domain, lv *golibvirt.Libvirt, fileOpenHandl
 	// As this command is just for limited, ad-hoc debugging, such as log file access,
 	// the number of bytes to read is limited to 48 MB.
 	// arg := []string{"-al"}
-	
 
 	contentString := ""
 	cmdReadFile := fmt.Sprintf(`{"execute": "guest-file-read", "arguments": { "handle": %d } }`, fileOpenHandler)
@@ -250,7 +290,7 @@ func (dg *DomainGather) QemuCommandMem(acc telegraf.Accumulator, lv *golibvirt.L
 		fmt.Println("QemuCommandMem() -- Linux")
 		LinuxMem(dg.Domain, lv)
 		// LinuxCpu(dg.Domain, lv)
-		GuestCommandExec(dg.Domain, lv, "/bin/df", "-Th")
+		GuestCommandExec(dg.Domain, lv, "/bin/df", []string{"-Th"})
 	} else {
 	}
 
@@ -379,34 +419,32 @@ func (l *utilsImpl) QemuCommandMetrics(domains []golibvirt.Domain, acc telegraf.
 // 	return nil
 // }
 
-	
+// cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
 
-	// cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
+// res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
+// if err != nil {
+// 	fmt.Println(err.Error())
 
-	// res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
-	// if err != nil {
-	// 	fmt.Println(err.Error())
+// 	return "", err
+// }
+// execStatusRes := &execStatusReturn{}
+// err = json.Unmarshal([]byte(res[0]), execStatusRes)
+// fmt.Println("execStatusRes")
+// fmt.Println(execStatusRes)
 
-	// 	return "", err
-	// }
-	// execStatusRes := &execStatusReturn{}
-	// err = json.Unmarshal([]byte(res[0]), execStatusRes)
-	// fmt.Println("execStatusRes")
-	// fmt.Println(execStatusRes)
+// if execStatusRes.Return.Exited {
+// 	stdOutBytes, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	stdOut := string(stdOutBytes)
+// 	exitCode := execStatusRes.Return.ExitCode
+// 	exited := true
+// 	fmt.Println("stdOut")
+// 	fmt.Println(stdOut)
+// 	fmt.Println("exitCode")
+// 	fmt.Println(exitCode)
+// 	fmt.Println("exited")
+// 	fmt.Println(exited)
 
-	// if execStatusRes.Return.Exited {
-	// 	stdOutBytes, err := base64.StdEncoding.DecodeString(execStatusRes.Return.OutData)
-	// 	if err != nil {
-	// 		return "", err
-	// 	}
-	// 	stdOut := string(stdOutBytes)
-	// 	exitCode := execStatusRes.Return.ExitCode
-	// 	exited := true
-	// 	fmt.Println("stdOut")
-	// 	fmt.Println(stdOut)
-	// 	fmt.Println("exitCode")
-	// 	fmt.Println(exitCode)
-	// 	fmt.Println("exited")
-	// 	fmt.Println(exited)
-
-	// }
+// }
