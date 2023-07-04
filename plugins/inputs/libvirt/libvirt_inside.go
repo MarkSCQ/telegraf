@@ -114,7 +114,7 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 		}
 	}
 	cmdExec := fmt.Sprintf(`{"execute": "guest-exec", "arguments": { "path": "%s", "arg": [ %s ], "capture-output":true } }`, Command, argsStr)
-	fmt.Println(cmdExec)
+	// fmt.Println(cmdExec)
 	res, err := lv.QEMUDomainAgentCommand(domain, cmdExec, 5, 0)
 	if err != nil {
 		fmt.Println(err.Error())
@@ -144,7 +144,6 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 		cmdExecStatus := fmt.Sprintf(`{"execute": "guest-exec-status", "arguments": { "pid": %d } }`, execRes.Return.Pid)
 		round := 1
 		for {
-			start1 := time.Now()
 			res, err = lv.QEMUDomainAgentCommand(domain, cmdExecStatus, 5, 0)
 			if err != nil {
 				fmt.Println(err.Error())
@@ -161,11 +160,6 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 					break
 				}
 			}
-			fmt.Println("Current Round ", round)
-			fmt.Println("time elapse:", time.Since(start1))
-			fmt.Println("==================================")
-			fmt.Println("execStatusRes")
-			fmt.Println(execStatusRes)
 			round += 1
 			// test if shit happens
 			// time.Sleep(6*time.Second)
@@ -185,41 +179,34 @@ func GuestCommandExec(domain golibvirt.Domain, lv *golibvirt.Libvirt, Command st
 	go func ()  {
 		select {
 		case data := <-dataChan:
-			fmt.Println("Go Routine -- Select")
-			fmt.Println(domain.Name)
-			fmt.Println(data)
-			fmt.Println(data.ExitCode)
-			fmt.Println(data.OutData)
-			fmt.Println(data.ErrDatabase64)
-
-			fmt.Println(data.OutTruncated)
-			fmt.Println(data.ErrTurncated)
+			// fmt.Println("Go Routine -- Select")
+			// fmt.Println(domain.Name)
+			// fmt.Println(data)
+			// fmt.Println(data.ExitCode)
+			// fmt.Println(data.OutData)
+			// fmt.Println(data.ErrDatabase64)
+			// fmt.Println(data.OutTruncated)
+			// fmt.Println(data.ErrTurncated)
 			dataAcc <- data.OutData
-			ed, _ := base64.StdEncoding.DecodeString(data.ErrDatabase64)
-			fmt.Println(string(ed))
-
 			// timeout should be configed in config files
 		case <-time.After(1 * time.Second):
 			fmt.Println("Time Out")
 			timeOutFlag = true
 		}
 	}()
-	
 	// datastring := data.
 	fmt.Println("====================")
-
 	dataget := <- dataAcc
 	fmt.Println("dataget")
-	fmt.Println(dataget)
+	ed, _ := base64.StdEncoding.DecodeString(dataget)
+	fmt.Println(string(ed))
 
-	stdOutBytes, err := base64.StdEncoding.DecodeString(dataget)
-	fmt.Println(stdOutBytes)
 	if timeOutFlag {
 		// cannot get data
 		fmt.Println("Time out")
 		return "", errors.New("time out")
 	}
-	fmt.Println("22222222222222222222222222")
+	fmt.Println("+++++++++++++++++++++++")
 
 	if err != nil {
 		return "", err
@@ -280,6 +267,7 @@ func GetGuestFileContent(domain golibvirt.Domain, lv *golibvirt.Libvirt, filePat
 
 	// get file size
 
+	
 
 	fileOpenHandler, err := GuestFileOpen(domain, lv, filePath)
 	if err != nil {
@@ -302,8 +290,8 @@ func LinuxMem(domain golibvirt.Domain, lv *golibvirt.Libvirt) error {
 		log.Printf("Error! %s ,%s", readFromFile, err.Error())
 		return err
 	}
-	// fmt.Println(readFromFile)
-	fmt.Printf("%T \n", readFromFile)
+	fmt.Println(readFromFile)
+	// fmt.Printf("%T \n", readFromFile)``
 	return nil
 }
 
@@ -313,20 +301,39 @@ func LinuxCpu(domain golibvirt.Domain, lv *golibvirt.Libvirt) error {
 		log.Printf("Error! %s ,%s", cpuData, err.Error())
 		return err
 	}
-	// fmt.Println(cpuData)
-	fmt.Printf("%T \n", cpuData)
+	fmt.Println(cpuData)
+	// fmt.Printf("%T \n", cpuData)
+	return nil
+}
+
+func LinuxNetwork(domain golibvirt.Domain, lv *golibvirt.Libvirt) error {
+	networkData, err := GetGuestFileContent(domain, lv, "/proc/net/dev")
+	if err != nil {
+		log.Printf("Error! %s ,%s", networkData, err.Error())
+		return err
+	}
+	fmt.Println(networkData)
+	// fmt.Printf("%T \n", networkData)
 	return nil
 }
 
 func (dg *DomainGather) QemuCommandMem(acc telegraf.Accumulator, lv *golibvirt.Libvirt) error {
 	fmt.Println("QemuCommandMem()")
 	if dg.DomianOsType == 1 {
-		fmt.Println("QemuCommandMem() -- Linux")
+		fmt.Println("LinuxMem() -- Linux")
 		LinuxMem(dg.Domain, lv)
-		// LinuxCpu(dg.Domain, lv)
+
+		fmt.Println("LinuxCpu() -- Linux")
+		LinuxCpu(dg.Domain, lv)
+
+		fmt.Println("LinuxNetwork() -- Linux")
+		LinuxNetwork(dg.Domain, lv)
+
+		fmt.Println("GuestCommandExec() -- Linux")
 		GuestCommandExec(dg.Domain, lv, "/bin/df", []string{"-Th"})
+
 		// permission problems when using guest-exec
-		GuestCommandExec(dg.Domain, lv, "/bin/ls", []string{"-l", "/proc"})
+		// GuestCommandExec(dg.Domain, lv, "/bin/ls", []string{"-l", "/proc"})
 		// qemu-agent-command '{"execute":"guest-exec", "arguments":{"path":"/bin/ls", "arg":["-l", "/path/to/myfile.txt"]}}'
 
 	} else {
@@ -362,6 +369,7 @@ func CheckOSType(domain golibvirt.Domain, lv *golibvirt.Libvirt) (int, error) {
 		log.Println(err.Error())
 		return 0, err
 	}
+
 
 	if data.Return.VmID == "mswindows" {
 		return 2, nil
